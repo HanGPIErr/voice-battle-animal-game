@@ -20,7 +20,9 @@ const state = {
     active: false,
     level: 0,
     phraseHitUntil: 0,
-    transcript: '',
+    segments: [],       // { text: string, at: number }[]
+    lastHitAt: 0,       // timestamp of last phrase detection
+    lastHeard: '',      // most recent STT text (for display)
     lastMatch: '',
     error: '',
     analyser: null,
@@ -121,9 +123,28 @@ function challengeAliases(challenge, animalId) {
   return [challenge.text, ...(challenge.aliases || [])];
 }
 
+// Maximum age (ms) of speech segments used for phrase matching
+const SEGMENT_MAX_AGE = 5000;
+// Minimum gap (ms) between consecutive phrase-hit detections
+const HIT_COOLDOWN = { hold: 600, rap: 250, combo: 400, classic: 400 };
+// How far back (ms) to search for the phrase, per mode
+const MATCH_WINDOW = { hold: 4000, rap: 2000, combo: 3500, classic: 3000 };
+
 function phraseHitForChallenge(challenge, animalId) {
-  const heard = normalizeSpeech(state.mic.transcript);
+  const now = Date.now();
+  const mode = challenge?.mode || 'classic';
+  // Enforce cooldown between detections to prevent double-triggers
+  if (now - state.mic.lastHitAt < (HIT_COOLDOWN[mode] ?? 400)) return false;
+
+  // Build a combined text from recent segments that arrived after the last hit
+  const cutoff = Math.max(now - (MATCH_WINDOW[mode] ?? 3000), state.mic.lastHitAt);
+  const heard = state.mic.segments
+    .filter((s) => s.at > cutoff)
+    .map((s) => normalizeSpeech(s.text))
+    .filter(Boolean)
+    .join(' ');
   if (!heard) return false;
+
   const phrases = challengeAliases(challenge, animalId).map(normalizeSpeech).filter(Boolean);
   return phrases.some((phrase) => {
     const compactHeard = heard.replace(/\s+/g, '');
@@ -358,8 +379,8 @@ function renderShell(content, active) {
         <nav class="nav" aria-label="Navigation principale">
           <a class="${active === 'dashboard' ? 'active' : ''}" href="#/dashboard">Accueil</a>
           <a class="${active === 'profile' ? 'active' : ''}" href="#/profile">Profil</a>
-          ${state.activeLobby ? `<a class="${active === 'lobby' ? 'active' : ''}" href="#/lobby/${h(state.activeLobby.code)}">Lobby</a>` : ''}
-          ${state.game ? `<a class="${active === 'game' ? 'active' : ''}" href="#/game">Partie</a>` : ''}
+          ${state.activeLobby && state.activeLobby.status !== 'finished' ? `<a class="${active === 'lobby' ? 'active' : ''}" href="#/lobby/${h(state.activeLobby.code)}">Lobby</a>` : ''}
+          ${state.game && state.game.status !== 'finished' ? `<a class="${active === 'game' ? 'active' : ''}" href="#/game">Partie</a>` : ''}
           <button type="button" data-action="logout">Sortir</button>
         </nav>
       </header>
@@ -368,8 +389,8 @@ function renderShell(content, active) {
         <div class="bottom-nav-inner">
           <a href="#/dashboard" class="${active === 'dashboard' ? 'active' : ''}" aria-label="Accueil">${iconHome}<span>Accueil</span></a>
           <a href="#/profile" class="${active === 'profile' ? 'active' : ''}" aria-label="Profil">${iconUser}<span>Profil</span></a>
-          ${state.activeLobby ? `<a href="#/lobby/${h(state.activeLobby.code)}" class="${active === 'lobby' ? 'active' : ''}" aria-label="Lobby">${iconLobby}<span>Lobby</span></a>` : ''}
-          ${state.game ? `<a href="#/game" class="${active === 'game' ? 'active' : ''}" aria-label="Partie">${iconGame}<span>Partie</span></a>` : ''}
+          ${state.activeLobby && state.activeLobby.status !== 'finished' ? `<a href="#/lobby/${h(state.activeLobby.code)}" class="${active === 'lobby' ? 'active' : ''}" aria-label="Lobby">${iconLobby}<span>Lobby</span></a>` : ''}
+          ${state.game && state.game.status !== 'finished' ? `<a href="#/game" class="${active === 'game' ? 'active' : ''}" aria-label="Partie">${iconGame}<span>Partie</span></a>` : ''}
           <button type="button" data-action="logout" aria-label="Déconnexion">${iconOut}<span>Sortir</span></button>
         </div>
       </nav>
@@ -469,29 +490,56 @@ function renderRegisterForm() {
 function renderDashboard() {
   const user = state.user;
   const ratio = user.wins + user.losses > 0 ? Math.round((user.wins / (user.wins + user.losses)) * 100) : 0;
+  const hasActiveLobby = state.activeLobby && state.activeLobby.status !== 'finished';
   return `
-    <main class="page dashboard-grid">
-      <section class="hero-band wide">
-        <div>
-          <h1>${h(user.displayName)}</h1>
-          <p>${h(user.bio || `Animal favori: ${animalName(user.mainAnimal)}. Prépare tes cordes vocales.`)}</p>
+    <main class="page db-layout">
+
+      <section class="db-hero wide">
+        <div class="db-hero-body">
+          <p class="db-hero-eyebrow">Bienvenue</p>
+          <h1 class="db-hero-name">${h(user.displayName)}</h1>
+          <p class="db-hero-bio">${h(user.bio || `Animal favori : ${animalName(user.mainAnimal)}`)}</p>
+          <div class="db-stats">
+            <div class="db-stat">
+              <span class="db-stat-val">${user.wins}</span>
+              <span class="db-stat-lbl">Victoires</span>
+            </div>
+            <div class="db-stat">
+              <span class="db-stat-val">${user.losses}</span>
+              <span class="db-stat-lbl">Défaites</span>
+            </div>
+            <div class="db-stat db-stat--accent">
+              <span class="db-stat-val">${ratio}%</span>
+              <span class="db-stat-lbl">Ratio</span>
+            </div>
+          </div>
         </div>
-        <div class="stat-row">
-          <div class="stat"><strong>${user.wins}</strong><span>Victoires</span></div>
-          <div class="stat"><strong>${user.losses}</strong><span>Défaites</span></div>
-          <div class="stat"><strong>${ratio}%</strong><span>Ratio</span></div>
-        </div>
+        <div class="db-hero-animal" aria-hidden="true">${animalSvg(user.mainAnimal, user.accent)}</div>
       </section>
-      <section class="panel">
-        <div class="panel-header">
-          <h2 class="panel-title">Créer un lobby</h2>
-          ${state.activeLobby ? `<a class="ghost-btn" href="#/lobby/${h(state.activeLobby.code)}">${h(state.activeLobby.code)}</a>` : ''}
+
+      ${hasActiveLobby ? `
+        <a class="db-resume wide" href="#/lobby/${h(state.activeLobby.code)}">
+          <span class="db-resume-dot"></span>
+          <span class="db-resume-text">Lobby en cours · <strong>${h(state.activeLobby.code)}</strong></span>
+          <span class="db-resume-arrow">Reprendre →</span>
+        </a>
+      ` : ''}
+
+      <section class="panel db-play-card">
+        <div class="db-play-card-head">
+          <span class="db-play-icon">+</span>
+          <div>
+            <h2 class="panel-title">Créer une partie</h2>
+            <p class="db-play-sub">Lance un nouveau duel</p>
+          </div>
         </div>
         <form class="form" id="create-lobby-form">
-          <span class="tiny-label">Format</span>
-          <div class="segmented">
-            <label><input type="radio" name="bestOf" value="3" checked><span>BO3</span></label>
-            <label><input type="radio" name="bestOf" value="5"><span>BO5</span></label>
+          <div>
+            <span class="tiny-label">Format</span>
+            <div class="segmented">
+              <label><input type="radio" name="bestOf" value="3" checked><span>BO3</span></label>
+              <label><input type="radio" name="bestOf" value="5"><span>BO5</span></label>
+            </div>
           </div>
           <label class="field">
             <span>Durée manche</span>
@@ -502,34 +550,41 @@ function renderDashboard() {
             <span>Premier animal</span>
             ${animalSelect('firstAnimal', user.mainAnimal)}
           </label>
-          <button class="primary-btn" type="submit">Ouvrir le lobby</button>
+          <button class="primary-btn db-submit" type="submit">Ouvrir le lobby</button>
         </form>
       </section>
-      <section class="panel">
-        <div class="panel-header">
-          <h2 class="panel-title">Rejoindre</h2>
+
+      <section class="panel db-play-card">
+        <div class="db-play-card-head">
+          <span class="db-play-icon db-play-icon--join">→</span>
+          <div>
+            <h2 class="panel-title">Rejoindre</h2>
+            <p class="db-play-sub">Entre avec un code ami</p>
+          </div>
         </div>
         <form class="form" id="join-lobby-form">
           <label class="field">
             <span>Code lobby</span>
-            <input name="code" maxlength="8" placeholder="ABC123" required>
+            <input class="db-code-input" name="code" maxlength="8" placeholder="ABC123" autocomplete="off" required>
           </label>
           <label class="field">
             <span>Premier animal</span>
             ${animalSelect('firstAnimal', user.mainAnimal)}
           </label>
-          <button class="primary-btn" type="submit">Rejoindre</button>
+          <button class="primary-btn db-submit" type="submit">Rejoindre</button>
         </form>
       </section>
+
       <section class="panel wide">
         <div class="panel-header">
           <h2 class="panel-title">Amis</h2>
-          <span class="badge">${state.friends.friends.length} ajoutés</span>
+          <span class="badge">${state.friends.friends.length} ajouté${state.friends.friends.length !== 1 ? 's' : ''}</span>
         </div>
         ${renderFriendSearch()}
         ${renderFriendRequests()}
         ${renderFriendsList()}
       </section>
+
     </main>
   `;
 }
@@ -745,6 +800,56 @@ function renderLobby(routeCode) {
   `;
 }
 
+function renderRoundEnd(game, round) {
+  const players = game.players;
+  const winner = players.find((p) => p.id === round.winnerId);
+  const animalId = round.animalsByUser?.[round.winnerId] || winner?.selectedAnimal || winner?.mainAnimal;
+  const isMyWin = round.winnerId === state.user?.id;
+  return `
+    <main class="stage transition-screen">
+      <div class="trans-card">
+        <span class="trans-verdict">${isMyWin ? 'Tu remportes la manche !' : 'Manche perdue…'}</span>
+        <div class="trans-animal">${animalSvg(animalId, winner?.accent)}</div>
+        <p class="trans-name">${h(winner?.displayName || 'Joueur')} gagne la manche ${round.number}</p>
+        <div class="trans-score">
+          ${players.map((p) => `
+            <div class="trans-score-item ${p.id === round.winnerId ? 'winner' : ''}">
+              <span>${h(p.displayName)}</span>
+              <span class="trans-score-val">${game.roundWins?.[p.id] || 0}</span>
+            </div>
+          `).join('<span class="trans-score-sep">–</span>')}
+        </div>
+        <p class="trans-next">Prochaine manche dans quelques secondes…</p>
+      </div>
+    </main>
+  `;
+}
+
+function renderGameEnd(game) {
+  const players = game.players;
+  const winner = players.find((p) => p.id === game.winnerId);
+  const animalId = winner?.selectedAnimal || winner?.mainAnimal;
+  const isVictory = game.winnerId === state.user?.id;
+  return `
+    <main class="stage transition-screen">
+      <div class="trans-card game-over">
+        <span class="trans-verdict ${isVictory ? 'victory' : 'defeat'}">${isVictory ? '🏆 Victoire !' : '💀 Défaite…'}</span>
+        <div class="trans-animal">${animalSvg(animalId, winner?.accent)}</div>
+        <p class="trans-name">${h(winner?.displayName || 'Joueur')} remporte la partie !</p>
+        <div class="trans-score">
+          ${players.map((p) => `
+            <div class="trans-score-item ${p.id === game.winnerId ? 'winner' : ''}">
+              <span>${h(p.displayName)}</span>
+              <span class="trans-score-val">${game.roundWins?.[p.id] || 0}</span>
+            </div>
+          `).join('<span class="trans-score-sep">–</span>')}
+        </div>
+        <button class="primary-btn" type="button" data-action="leave-game">Retour à l'accueil</button>
+      </div>
+    </main>
+  `;
+}
+
 function renderGame() {
   const game = state.game || state.activeLobby?.match;
   if (!game) {
@@ -759,19 +864,17 @@ function renderGame() {
   }
   state.game = game;
 
+  // Full-screen transitions for round end and game over
+  if (game.status === 'finished') return renderGameEnd(game);
   const round = game.currentRound;
+  if (round?.status === 'ended') return renderRoundEnd(game, round);
+
   const players = game.players;
   const me = players.find((player) => player.id === state.user.id);
   const now = nowServer();
   const countdown = round ? Math.max(0, Math.ceil((round.countdownEndsAt - now) / 1000)) : 0;
   const remaining = round ? Math.max(0, Math.ceil((round.endsAt - now) / 1000)) : 0;
-  const label = game.status === 'finished'
-    ? `${game.winnerId === state.user.id ? 'Victoire' : 'Défaite'}`
-    : round?.status === 'countdown'
-      ? `${countdown}`
-      : round?.status === 'ended'
-        ? 'Manche'
-        : `${remaining}s`;
+  const label = round?.status === 'countdown' ? `${countdown}` : `${remaining}s`;
   const micGateOpen = Date.now() < state.mic.phraseHitUntil;
   const micStatus = state.mic.error
     ? state.mic.error
@@ -799,6 +902,7 @@ function renderGame() {
         `}
         <div class="meter"><span style="width:${Math.round(state.mic.level * 100)}%"></span></div>
         <span class="badge ${micGateOpen ? 'good' : state.mic.active ? 'warn' : state.mic.error ? 'warn' : ''}">${h(micStatus)}</span>
+        ${state.mic.active && state.mic.lastHeard ? `<span class="badge" style="opacity:0.55;font-size:0.72rem">« ${h(state.mic.lastHeard)} »</span>` : ''}
       </section>
     </main>
   `;
@@ -892,10 +996,19 @@ function connectWs() {
       state.animals = message.animals || state.animals;
     }
     if (message.type === 'lobby') {
-      state.activeLobby = message.lobby.players.some((player) => player.id === state.user.id) ? message.lobby : state.activeLobby;
+      const isMyLobby = message.lobby.players.some((player) => player.id === state.user.id);
+      if (isMyLobby) {
+        if (message.lobby.status === 'finished') {
+          // Keep the lobby in state temporarily so renderGameEnd can display,
+          // but clear it so the nav / dashboard don't reference a dead lobby.
+          state.activeLobby = message.lobby;
+        } else {
+          state.activeLobby = message.lobby;
+        }
+      }
       state.viewedLobby = message.lobby;
-      if (message.lobby.match) state.game = message.lobby.match;
-      if (message.lobby.status === 'in_game' && message.lobby.players.some((player) => player.id === state.user.id)) {
+      if (message.lobby.match && message.lobby.status !== 'finished') state.game = message.lobby.match;
+      if (message.lobby.status === 'in_game' && isMyLobby) {
         location.hash = '#/game';
       }
       render();
@@ -903,6 +1016,8 @@ function connectWs() {
     if (message.type === 'game') {
       state.game = message.game;
       state.serverOffset = message.game.serverNow - Date.now();
+      // Stop mic automatically when the game ends
+      if (message.game.status === 'finished' && state.mic.active) stopMic();
       render();
     }
     if (message.type === 'friends') {
@@ -990,7 +1105,9 @@ function stopMic() {
     active: false,
     level: 0,
     phraseHitUntil: 0,
-    transcript: '',
+    segments: [],
+    lastHitAt: 0,
+    lastHeard: '',
     lastMatch: '',
     analyser: null,
     data: null,
@@ -1021,10 +1138,20 @@ function tickMic() {
   const challenge = game.currentRound.challengesByUser?.[state.user.id] || null;
   const freshPhraseHit = phraseHitForChallenge(challenge, animalId);
   if (freshPhraseHit) {
-    const windowMs = challenge?.mode === 'hold' ? 1550 : challenge?.mode === 'rap' ? 950 : 1250;
+    const mode = challenge?.mode || 'classic';
+    const windowMs = mode === 'hold' ? 2500 : mode === 'rap' ? 900 : 1250;
+    state.mic.lastHitAt = Date.now();
     state.mic.phraseHitUntil = Date.now() + windowMs;
     state.mic.lastMatch = challenge?.text || animalPhrase(animalId);
-    state.mic.transcript = '';
+  }
+  // Hold mode: extend the active window as long as the mic keeps picking up sound,
+  // bridging gaps between STT re-detections (STT can be slow on sustained vowels).
+  if (
+    challenge?.mode === 'hold' &&
+    Date.now() < state.mic.phraseHitUntil &&
+    state.mic.level > 0.15
+  ) {
+    state.mic.phraseHitUntil = Math.max(state.mic.phraseHitUntil, Date.now() + 2000);
   }
   const phraseHit = Date.now() < state.mic.phraseHitUntil;
 
@@ -1048,16 +1175,31 @@ function startSpeech() {
   recognition.lang = 'fr-FR';
   recognition.continuous = true;
   recognition.interimResults = true;
+  recognition.maxAlternatives = 5;
   recognition.onresult = (event) => {
-    let heard = '';
+    const now = Date.now();
     for (let i = event.resultIndex; i < event.results.length; i += 1) {
-      heard += event.results[i][0].transcript;
+      // Collect all recognition alternatives, not just the top one
+      const texts = [];
+      for (let j = 0; j < event.results[i].length; j += 1) {
+        const t = (event.results[i][j].transcript || '').trim();
+        if (t) texts.push(t);
+      }
+      if (texts.length) {
+        state.mic.segments.push({ text: texts.join(' '), at: now });
+        state.mic.lastHeard = texts[0];
+      }
     }
-    state.mic.transcript = `${state.mic.transcript} ${heard}`.slice(-240);
+    // Prune segments older than maximum age
+    state.mic.segments = state.mic.segments.filter((s) => now - s.at < SEGMENT_MAX_AGE);
     state.mic.error = '';
   };
-  recognition.onerror = () => {
-    if (state.mic.active) state.mic.error = 'Dis la consigne';
+  recognition.onerror = (event) => {
+    // Silently restart on non-fatal errors; only surface fatal ones
+    const ignorable = ['no-speech', 'aborted'];
+    if (state.mic.active && !ignorable.includes(event.error)) {
+      state.mic.error = 'Dis la consigne';
+    }
   };
   recognition.onend = () => {
     if (state.mic.active) {
@@ -1079,6 +1221,14 @@ document.addEventListener('click', async (event) => {
 
   if (action === 'auth-mode') {
     state.authMode = button.dataset.mode;
+    render();
+  }
+
+  if (action === 'leave-game') {
+    stopMic();
+    state.game = null;
+    state.activeLobby = null;
+    location.hash = '#/dashboard';
     render();
   }
 
