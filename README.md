@@ -19,3 +19,13 @@ Puis ouvre `http://localhost:5176`.
 - Auth: sessions HTTP-only + mots de passe hashés avec PBKDF2.
 
 Cette base peut être hébergée gratuitement sur une petite VM/free tier, ou migrée plus tard vers Supabase/Neon + un serveur WebSocket managé si besoin.
+
+## Supabase sur Vercel
+
+Vercel ne fournit pas de filesystem persistant pour SQLite. Pour préparer la base Supabase:
+
+1. Ouvre Supabase depuis l'intégration Vercel.
+2. Va dans SQL Editor.
+3. Colle et exécute `supabase/schema.sql`.
+
+Les variables Vercel attendues sont déjà créées par l'intégration Supabase, notamment `SUPABASE_POSTGRES_PRISMA_URL`, `SUPABASE_POSTGRES_URL`, `SUPABASE_URL` et `SUPABASE_SERVICE_ROLE_KEY`.
