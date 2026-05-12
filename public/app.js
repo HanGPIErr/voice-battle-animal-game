@@ -836,9 +836,9 @@ function renderRoundHistory(game) {
 async function refreshMe() {
   try {
     const payload = await api('/api/me');
-    state.user = payload.user;
-    state.friends = payload.friends;
-    state.activeLobby = payload.activeLobby;
+    state.user = payload.user || null;
+    state.friends = payload.friends || { friends: [], incoming: [], outgoing: [] };
+    state.activeLobby = payload.activeLobby || null;
     if (payload.activeLobby?.match) state.game = payload.activeLobby.match;
     if (state.wsOpen && state.activeLobby) subscribeLobby(state.activeLobby.code);
   } catch {
