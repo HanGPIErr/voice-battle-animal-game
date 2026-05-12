@@ -2,15 +2,21 @@
 <html lang="fr">
   <head>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="theme-color" content="#101418">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#fffaf1">
+    <meta name="description" content="Duel 1v1 au micro — imite des cris d'animaux, affronte tes amis en lobby privé.">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <title>Cri Animaux Arena</title>
-    <link rel="stylesheet" href="/styles.css?v=voice-rules-2">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;800;900&display=swap">
+    <link rel="stylesheet" href="/styles.css?v=voice-rules-3">
   </head>
   <body>
     <div class="backdrop" aria-hidden="true"></div>
-    <div id="toasts" class="toasts" aria-live="polite"></div>
+    <div id="toasts" class="toasts" aria-live="polite" aria-atomic="false"></div>
     <main id="app" class="app"></main>
-    <script type="module" src="/app.js?v=voice-rules-2"></script>
+    <script type="module" src="/app.js?v=voice-rules-3"></script>
   </body>
 </html>

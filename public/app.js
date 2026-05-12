@@ -342,6 +342,12 @@ function render() {
 }
 
 function renderShell(content, active) {
+  const iconHome = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>`;
+  const iconUser = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M20 21a8 8 0 1 0-16 0"/></svg>`;
+  const iconLobby = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>`;
+  const iconGame = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/></svg>`;
+  const iconOut = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>`;
+
   app.innerHTML = `
     <div class="shell">
       <header class="topbar">
@@ -349,7 +355,7 @@ function renderShell(content, active) {
           <span class="brand-mark">${animalSvg(state.user.mainAnimal, state.user.accent)}</span>
           <span>Cri Animaux Arena</span>
         </a>
-        <nav class="nav">
+        <nav class="nav" aria-label="Navigation principale">
           <a class="${active === 'dashboard' ? 'active' : ''}" href="#/dashboard">Accueil</a>
           <a class="${active === 'profile' ? 'active' : ''}" href="#/profile">Profil</a>
           ${state.activeLobby ? `<a class="${active === 'lobby' ? 'active' : ''}" href="#/lobby/${h(state.activeLobby.code)}">Lobby</a>` : ''}
@@ -358,6 +364,15 @@ function renderShell(content, active) {
         </nav>
       </header>
       ${content}
+      <nav class="bottom-nav" aria-label="Navigation">
+        <div class="bottom-nav-inner">
+          <a href="#/dashboard" class="${active === 'dashboard' ? 'active' : ''}" aria-label="Accueil">${iconHome}<span>Accueil</span></a>
+          <a href="#/profile" class="${active === 'profile' ? 'active' : ''}" aria-label="Profil">${iconUser}<span>Profil</span></a>
+          ${state.activeLobby ? `<a href="#/lobby/${h(state.activeLobby.code)}" class="${active === 'lobby' ? 'active' : ''}" aria-label="Lobby">${iconLobby}<span>Lobby</span></a>` : ''}
+          ${state.game ? `<a href="#/game" class="${active === 'game' ? 'active' : ''}" aria-label="Partie">${iconGame}<span>Partie</span></a>` : ''}
+          <button type="button" data-action="logout" aria-label="Déconnexion">${iconOut}<span>Sortir</span></button>
+        </div>
+      </nav>
     </div>
   `;
 }
