@@ -13,6 +13,7 @@ const state = {
   searchResults: [],
   ws: null,
   wsOpen: false,
+  wsRetries: 0,
   selectedAnimals: new Map(),
   serverOffset: 0,
   mic: {
@@ -32,9 +33,15 @@ const state = {
 };
 
 const fallbackAnimals = [
-  { id: 'dog', name: 'Chien', phrase: 'waf waf', aliases: ['waf', 'ouaf', 'woof'] },
-  { id: 'cat', name: 'Chat', phrase: 'miaou', aliases: ['miaou', 'meow'] },
-  { id: 'duck', name: 'Canard', phrase: 'coin coin', aliases: ['coin', 'quack'] }
+  { id: 'dog', name: 'Chien', phrase: 'waf waf', aliases: ['waf', 'ouaf', 'woof'], prompts: [{ id: 'dog_classic', text: 'waf waf', aliases: ['waf waf', 'ouaf ouaf', 'woof woof'], hint: 'aboiement propre', mode: 'classic', multiplier: 1 }, { id: 'dog_grr', text: 'grrr... waf waf', aliases: ['grr waf', 'grrr waf', 'grogne waf'], hint: 'grogne puis aboie', mode: 'combo', multiplier: 1.12 }, { id: 'dog_rap', text: 'waf-waf rap', aliases: ['waf waf waf', 'ouaf ouaf ouaf', 'wafwafwaf'], hint: 'enchaîne vite', mode: 'rap', multiplier: 1.28 }] },
+  { id: 'cat', name: 'Chat', phrase: 'miaou', aliases: ['miaou', 'meow'], prompts: [{ id: 'cat_classic', text: 'miaouuu', aliases: ['miaou', 'miaouu', 'meow'], hint: 'long et dramatique', mode: 'hold', multiplier: 1.08 }, { id: 'cat_purr', text: 'mrrrr miaou', aliases: ['mrrr miaou', 'mrrrr miaou', 'ronron miaou'], hint: 'ronron puis miaou', mode: 'combo', multiplier: 1.16 }, { id: 'cat_rap', text: 'mi-mi-miaou', aliases: ['mi mi miaou', 'mimi miaou', 'miaou miaou miaou'], hint: 'flow félin', mode: 'rap', multiplier: 1.26 }] },
+  { id: 'duck', name: 'Canard', phrase: 'coin coin', aliases: ['coin', 'quack'], prompts: [{ id: 'duck_classic', text: 'coin coin', aliases: ['coin coin', 'quack quack'], hint: 'bec bien fermé', mode: 'classic', multiplier: 1 }, { id: 'duck_rap', text: 'coin coin coin', aliases: ['coin coin coin', 'quack quack quack'], hint: 'canard en rafale', mode: 'rap', multiplier: 1.3 }, { id: 'duck_funky', text: 'coin-coin waak', aliases: ['coin coin waak', 'coin coin ouak', 'quack quack waak'], hint: 'final bizarre accepté', mode: 'combo', multiplier: 1.18 }] },
+  { id: 'cow', name: 'Vache', phrase: 'meuh', aliases: ['meuh', 'moo'], prompts: [{ id: 'cow_hold', text: 'meuuuh long', aliases: ['meuh', 'meuuuh', 'moo'], hint: 'tiens le meuh', mode: 'hold', multiplier: 1.12 }, { id: 'cow_bass', text: 'meuh meuh basse', aliases: ['meuh meuh', 'moo moo'], hint: 'grave et lent', mode: 'classic', multiplier: 1.05 }, { id: 'cow_rap', text: 'meuh-meuh rap', aliases: ['meuh meuh meuh', 'moo moo moo'], hint: 'ruminant rapide', mode: 'rap', multiplier: 1.24 }] },
+  { id: 'frog', name: 'Grenouille', phrase: 'croa croa', aliases: ['croa', 'ribbit'], prompts: [{ id: 'frog_classic', text: 'croa croa', aliases: ['croa croa', 'ribbit ribbit'], hint: 'marecage standard', mode: 'classic', multiplier: 1 }, { id: 'frog_bounce', text: 'croa-hop croa', aliases: ['croa hop croa', 'croa croa hop'], hint: 'saute dans le rythme', mode: 'combo', multiplier: 1.18 }, { id: 'frog_rap', text: 'croa croa croa', aliases: ['croa croa croa', 'ribbit ribbit ribbit'], hint: 'rafale rapide', mode: 'rap', multiplier: 1.28 }] },
+  { id: 'rooster', name: 'Coq', phrase: 'cocorico', aliases: ['cocorico'], prompts: [{ id: 'rooster_classic', text: 'cocorico !', aliases: ['cocorico'], hint: 'reveil du village', mode: 'hold', multiplier: 1.14 }, { id: 'rooster_rap', text: 'coco-rico rap', aliases: ['coco rico', 'coco rico rico', 'cocorico cocorico'], hint: 'flow de basse-cour', mode: 'rap', multiplier: 1.28 }, { id: 'rooster_combo', text: 'cot cot cocorico', aliases: ['cot cot cocorico', 'kot kot cocorico'], hint: 'echauffement puis cri', mode: 'combo', multiplier: 1.18 }] },
+  { id: 'pig', name: 'Cochon', phrase: 'groin groin', aliases: ['groin', 'oink'], prompts: [{ id: 'pig_classic', text: 'groin groin', aliases: ['groin groin', 'oink oink'], hint: 'nez en avant', mode: 'classic', multiplier: 1 }, { id: 'pig_snort', text: 'snrrrk groin', aliases: ['snrk groin', 'snrrrk groin', 'ronfle groin'], hint: 'petit reniflement', mode: 'combo', multiplier: 1.18 }, { id: 'pig_rap', text: 'groin-groin rap', aliases: ['groin groin groin', 'oink oink oink'], hint: 'freestyle rose', mode: 'rap', multiplier: 1.26 }] },
+  { id: 'sheep', name: 'Mouton', phrase: 'beee', aliases: ['beee', 'baa'], prompts: [{ id: 'sheep_hold', text: 'beee long', aliases: ['be', 'beee', 'baa'], hint: 'tiens le cri', mode: 'hold', multiplier: 1.12 }, { id: 'sheep_combo', text: 'be be beee', aliases: ['be be be', 'be be beee', 'baa baa baa'], hint: 'troupeau en montee', mode: 'combo', multiplier: 1.18 }, { id: 'sheep_rap', text: 'be-be rap', aliases: ['be be be be', 'baa baa baa baa'], hint: 'bergerie rapide', mode: 'rap', multiplier: 1.26 }] },
+  { id: 'fox', name: 'Renard', phrase: 'yip yip', aliases: ['yip', 'wa-pa'], prompts: [{ id: 'fox_classic', text: 'yip yip', aliases: ['yip yip', 'yap yap'], hint: 'cri malin', mode: 'classic', multiplier: 1 }, { id: 'fox_weird', text: 'wa-pa-pa yip', aliases: ['wa pa pa yip', 'wapapa yip', 'wa pa yip'], hint: 'meme accepte', mode: 'combo', multiplier: 1.2 }, { id: 'fox_rap', text: 'yip-yip rap', aliases: ['yip yip yip', 'yap yap yap'], hint: 'rap des bois', mode: 'rap', multiplier: 1.28 }] }
 ];
 
 const h = (value) => String(value ?? '')
@@ -61,7 +68,17 @@ async function api(path, options = {}) {
     body: options.body ? JSON.stringify(options.body) : undefined
   });
   const text = await response.text();
-  const payload = text ? JSON.parse(text) : {};
+  let payload = {};
+  if (text) {
+    try {
+      payload = JSON.parse(text);
+    } catch {
+      const hint = response.status === 404
+        ? 'API introuvable sur ce déploiement. Vérifie que le dernier commit est bien redéployé sur Vercel.'
+        : "L'API a renvoyé une page au lieu du JSON attendu.";
+      throw new Error(hint);
+    }
+  }
   if (!response.ok) {
     throw new Error(payload.error || `Erreur ${response.status}`);
   }
@@ -833,18 +850,25 @@ async function refreshMe() {
 
 function connectWs() {
   if (!state.user || (state.ws && [WebSocket.OPEN, WebSocket.CONNECTING].includes(state.ws.readyState))) return;
+  if (state.wsRetries >= 5) return;
   const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
   const ws = new WebSocket(`${protocol}://${location.host}/ws`);
   state.ws = ws;
 
   ws.addEventListener('open', () => {
     state.wsOpen = true;
+    state.wsRetries = 0;
     if (state.activeLobby) subscribeLobby(state.activeLobby.code);
+  });
+
+  ws.addEventListener('error', () => {
+    state.wsOpen = false;
   });
 
   ws.addEventListener('close', () => {
     state.wsOpen = false;
-    setTimeout(connectWs, 1200);
+    state.wsRetries += 1;
+    setTimeout(connectWs, Math.min(5000, 1200 * state.wsRetries));
   });
 
   ws.addEventListener('message', (event) => {

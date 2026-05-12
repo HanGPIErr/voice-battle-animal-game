@@ -7,6 +7,9 @@
     "dev": "node --no-warnings server/server.js",
     "start": "node --no-warnings server/server.js"
   },
+  "dependencies": {
+    "postgres": "^3.4.7"
+  },
   "engines": {
     "node": ">=22.5.0"
   }
