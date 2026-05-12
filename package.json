@@ -1,0 +1,13 @@
+{
+  "name": "cri-animaux-arena",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --no-warnings server/server.js",
+    "start": "node --no-warnings server/server.js"
+  },
+  "engines": {
+    "node": ">=22.5.0"
+  }
+}
