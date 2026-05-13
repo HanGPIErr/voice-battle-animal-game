@@ -15,6 +15,9 @@ const SESSION_DAYS = 14;
 const WS_GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11';
 const MIN_PLAYERS = 2;
 const MAX_PLAYERS = 4;
+const ROUND_COUNTDOWN_MS = 3200;
+const NEXT_ROUND_DELAY_MS = 3600;
+const SHIFUMI_CHOICES = ['rock', 'paper', 'scissors'];
 
 const ANIMALS = [
   {
@@ -443,6 +446,7 @@ function restoreMatch(lobbyId) {
   if (!state || state.status !== 'playing') return null;
   state.timers = [];
   activeMatches.set(lobbyId, state);
+  advanceMatchClock(state, false);
   return state;
 }
 
@@ -621,6 +625,111 @@ function challengeMapForAnimals(animalsByUser, previousChallenges = {}) {
   return { challenges, phrases };
 }
 
+function rotateChallengeForUser(state, round, userId) {
+  const animalId = round.animalsByUser?.[userId];
+  if (!animalId) return;
+
+  const currentChallenge = round.challengesByUser?.[userId] || null;
+  const nextChallenge = randomChallenge(animalId, currentChallenge?.id || null);
+  round.challengesByUser[userId] = nextChallenge;
+  round.phrasesByUser[userId] = nextChallenge.text;
+  state.previousChallenges ||= {};
+  state.previousChallenges[userId] = nextChallenge.id;
+}
+
+function promptHitIncrement(challenge, level) {
+  const baseByMode = {
+    rap: 14,
+    hold: 18,
+    combo: 17,
+    classic: 16
+  };
+  const base = baseByMode[challenge.mode] || baseByMode.classic;
+  const volumeBonus = clamp(level * 10, 0, 5);
+  return Math.min(28, (base + volumeBonus) * clamp(challenge.multiplier || 1, 0.8, 1.45));
+}
+
+function sustainedVoiceIncrement(challenge, level, elapsed) {
+  const gain = Math.max(0, level - 0.085) * 10.8;
+  const elapsedFactor = clamp(elapsed / 150, 0.55, 1.7);
+  const modeBonus = challenge.mode === 'rap' ? 0.42 : challenge.mode === 'hold' ? 0.22 : challenge.mode === 'combo' ? 0.3 : 0.12;
+  return Math.min(4.4, (gain * elapsedFactor + modeBonus) * clamp(challenge.multiplier || 1, 0.8, 1.45));
+}
+
+function randomChoice(items) {
+  return items[Math.floor(Math.random() * items.length)];
+}
+
+function winningShifumiChoice(choices) {
+  const unique = new Set(choices);
+  if (unique.size !== 2) return null;
+  if (unique.has('rock') && unique.has('scissors')) return 'rock';
+  if (unique.has('scissors') && unique.has('paper')) return 'scissors';
+  if (unique.has('paper') && unique.has('rock')) return 'paper';
+  return null;
+}
+
+function timeoutWinner(state, round) {
+  const scoredPlayers = state.players.map((player) => ({
+    id: Number(player.id),
+    progress: Number(round.progressByUser?.[player.id] || 0)
+  }));
+  const bestProgress = Math.max(...scoredPlayers.map((player) => player.progress));
+  const tied = scoredPlayers.filter((player) => Math.abs(player.progress - bestProgress) < 0.001);
+
+  if (tied.length <= 1) {
+    return { winnerId: tied[0]?.id || Number(state.players[0].id), tieBreak: null };
+  }
+
+  let pool = tied;
+  const rounds = [];
+  for (let attempt = 0; attempt < 8 && pool.length > 1; attempt += 1) {
+    const choices = Object.fromEntries(pool.map((player) => [player.id, randomChoice(SHIFUMI_CHOICES)]));
+    const winningChoice = winningShifumiChoice(Object.values(choices));
+    rounds.push({ choices, winningChoice });
+    if (winningChoice) pool = pool.filter((player) => choices[player.id] === winningChoice);
+  }
+
+  const winner = randomChoice(pool);
+  return {
+    winnerId: winner.id,
+    tieBreak: {
+      type: 'shifumi',
+      tiedPlayerIds: tied.map((player) => player.id),
+      rounds,
+      fallback: pool.length > 1
+    }
+  };
+}
+
+function advanceMatchClock(state, shouldBroadcast = true) {
+  if (state.status !== 'playing' || !state.currentRound) return false;
+  const round = state.currentRound;
+  const now = Date.now();
+
+  if (round.status === 'countdown' && now >= round.countdownEndsAt) {
+    round.status = 'playing';
+    saveMatchState(state);
+    if (shouldBroadcast) broadcastGame(state);
+  }
+
+  if (round.status === 'playing' && now >= round.endsAt) {
+    endRound(state, null, 'time');
+    return true;
+  }
+
+  if (
+    round.status === 'ended' &&
+    state.roundWins?.[round.winnerId] < state.targetWins &&
+    now >= (round.endedAt || 0) + NEXT_ROUND_DELAY_MS
+  ) {
+    beginRound(state, false);
+    return true;
+  }
+
+  return false;
+}
+
 function beginRound(state, firstRound = false) {
   const now = Date.now();
   const animalsByUser = {};
@@ -640,8 +749,8 @@ function beginRound(state, firstRound = false) {
   state.currentRound = {
     number: state.rounds.length + 1,
     status: 'countdown',
-    countdownEndsAt: now + 3200,
-    endsAt: now + 3200 + state.roundSeconds * 1000,
+    countdownEndsAt: now + ROUND_COUNTDOWN_MS,
+    endsAt: now + ROUND_COUNTDOWN_MS + state.roundSeconds * 1000,
     winnerId: null,
     animalsByUser,
     phrasesByUser: phrases,
@@ -658,7 +767,7 @@ function beginRound(state, firstRound = false) {
     state.currentRound.status = 'playing';
     saveMatchState(state);
     broadcastGame(state);
-  }, 3200));
+  }, ROUND_COUNTDOWN_MS));
 }
 
 function endRound(state, winnerId, reason = 'progress') {
@@ -666,8 +775,14 @@ function endRound(state, winnerId, reason = 'progress') {
 
   const round = state.currentRound;
   if (!winnerId) {
-    const scores = Object.entries(round.progressByUser).sort((a, b) => b[1] - a[1]);
-    winnerId = Number(scores[0]?.[0] || state.players[0].id);
+    if (reason === 'time') {
+      const result = timeoutWinner(state, round);
+      winnerId = result.winnerId;
+      round.tieBreak = result.tieBreak;
+    } else {
+      const scores = Object.entries(round.progressByUser).sort((a, b) => b[1] - a[1]);
+      winnerId = Number(scores[0]?.[0] || state.players[0].id);
+    }
   }
 
   winnerId = Number(winnerId);
@@ -682,6 +797,7 @@ function endRound(state, winnerId, reason = 'progress') {
     number: round.number,
     winnerId,
     reason,
+    tieBreak: round.tieBreak || null,
     endedAt: round.endedAt,
     animalsByUser: round.animalsByUser,
     challengesByUser: round.challengesByUser,
@@ -696,7 +812,11 @@ function endRound(state, winnerId, reason = 'progress') {
   saveMatchState(state);
   broadcastGame(state);
   state.timers ||= [];
-  state.timers.push(setTimeout(() => beginRound(state, false), 3600));
+  state.timers.push(setTimeout(() => {
+    if (state.status === 'playing' && state.currentRound?.status === 'ended' && state.currentRound.number === round.number) {
+      beginRound(state, false);
+    }
+  }, NEXT_ROUND_DELAY_MS));
 }
 
 function finishMatch(state, winnerId) {
@@ -771,6 +891,7 @@ function handleVoiceTick(client, message) {
 
   const now = Date.now();
   const round = state.currentRound;
+  advanceMatchClock(state);
   if (round.status === 'countdown' || now < round.countdownEndsAt) return;
   if (round.status !== 'playing') return;
   if (now >= round.endsAt) {
@@ -790,10 +911,19 @@ function handleVoiceTick(client, message) {
   const phraseHit = Boolean(message.phraseHit) && (!message.challengeId || message.challengeId === challenge.id);
   if (!phraseHit) return;
 
-  const gain = Math.max(0, level - 0.085) * 10.8;
-  const elapsedFactor = clamp(elapsed / 150, 0.55, 1.7);
-  const modeBonus = challenge.mode === 'rap' ? 0.42 : challenge.mode === 'hold' ? 0.22 : challenge.mode === 'combo' ? 0.3 : 0.12;
-  const increment = Math.min(4.4, (gain * elapsedFactor + modeBonus) * clamp(challenge.multiplier || 1, 0.8, 1.45));
+  const freshPhraseHit = Boolean(message.freshPhraseHit);
+  if (freshPhraseHit) {
+    client.voiceHitLastAt ||= new Map();
+    const hitKey = `${state.id}:${round.number}:${userId}`;
+    const hitCooldown = challenge.mode === 'rap' ? 320 : 520;
+    const lastHit = client.voiceHitLastAt.get(hitKey) || 0;
+    if (now - lastHit < hitCooldown) return;
+    client.voiceHitLastAt.set(hitKey, now);
+  }
+
+  const increment = freshPhraseHit
+    ? promptHitIncrement(challenge, level)
+    : sustainedVoiceIncrement(challenge, level, elapsed);
   if (increment <= 0) return;
 
   round.progressByUser[userId] = clamp((round.progressByUser[userId] || 0) + increment, 0, 100);
@@ -801,6 +931,7 @@ function handleVoiceTick(client, message) {
   if (round.progressByUser[userId] >= 100) {
     endRound(state, client.user.id, 'progress');
   } else {
+    if (freshPhraseHit) rotateChallengeForUser(state, round, userId);
     saveMatchState(state);
     broadcastGame(state);
   }
@@ -815,7 +946,8 @@ function broadcastLobby(lobbyId) {
   if (!lobby) return;
   const payload = { type: 'lobby', lobby: getLobbySnapshot(lobby) };
   for (const client of wsClients) {
-    if (client.subscriptions.has(`lobby:${lobby.code}`) || client.subscriptions.has(`lobby:${lobby.id}`)) {
+    const isMember = payload.lobby.players.some((player) => player.id === client.user?.id);
+    if (isMember || client.subscriptions.has(`lobby:${lobby.code}`) || client.subscriptions.has(`lobby:${lobby.id}`)) {
       sendWs(client, payload);
     }
   }
@@ -824,7 +956,8 @@ function broadcastLobby(lobbyId) {
 function broadcastGame(state) {
   const payload = { type: 'game', game: publicGameState(state) };
   for (const client of wsClients) {
-    if (client.subscriptions.has(`lobby:${state.lobbyCode}`) || client.subscriptions.has(`lobby:${state.lobbyId}`)) {
+    const isPlayer = state.players.some((player) => player.id === client.user?.id);
+    if (isPlayer || client.subscriptions.has(`lobby:${state.lobbyCode}`) || client.subscriptions.has(`lobby:${state.lobbyId}`)) {
       sendWs(client, payload);
     }
   }
@@ -1310,10 +1443,7 @@ function sendWs(client, payload) {
 
 setInterval(() => {
   for (const state of activeMatches.values()) {
-    const round = state.currentRound;
-    if (state.status === 'playing' && round?.status === 'playing' && Date.now() >= round.endsAt) {
-      endRound(state, null, 'time');
-    }
+    advanceMatchClock(state);
   }
 }, 500);
 

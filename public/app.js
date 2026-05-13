@@ -14,12 +14,15 @@ const state = {
   ws: null,
   wsOpen: false,
   wsRetries: 0,
+  pendingLobbySubscriptions: new Set(),
+  subscribedLobbyCodes: new Set(),
   selectedAnimals: new Map(),
   serverOffset: 0,
   mic: {
     active: false,
     level: 0,
     phraseHitUntil: 0,
+    phraseHitChallengeId: '',
     segments: [],       // { text: string, at: number }[]
     lastHitAt: 0,       // timestamp of last phrase detection
     lastHeard: '',      // most recent STT text (for display)
@@ -122,6 +125,10 @@ function challengeAliases(challenge, animalId) {
   const entry = animal(animalId);
   if (!challenge) return [entry.phrase, ...(entry.aliases || [])];
   return [challenge.text, ...(challenge.aliases || [])];
+}
+
+function challengeKey(challenge, animalId) {
+  return challenge?.id || animalId || '';
 }
 
 // Maximum age (ms) of speech segments used for phrase matching
@@ -856,6 +863,7 @@ function renderRoundEnd(game, round) {
             </div>
           `).join('<span class="trans-score-sep">–</span>')}
         </div>
+        ${renderRoundReason(game, round)}
         <p class="trans-next">Prochaine manche dans quelques secondes…</p>
       </div>
     </main>
@@ -912,7 +920,10 @@ function renderGame() {
   const countdown = round ? Math.max(0, Math.ceil((round.countdownEndsAt - now) / 1000)) : 0;
   const remaining = round ? Math.max(0, Math.ceil((round.endsAt - now) / 1000)) : 0;
   const label = round?.status === 'countdown' ? `${countdown}` : `${remaining}s`;
-  const micGateOpen = Date.now() < state.mic.phraseHitUntil;
+  const myAnimalId = round?.animalsByUser?.[state.user.id] || me?.selectedAnimal || state.user.mainAnimal;
+  const myChallenge = round?.challengesByUser?.[state.user.id] || null;
+  const micGateOpen = Date.now() < state.mic.phraseHitUntil
+    && state.mic.phraseHitChallengeId === challengeKey(myChallenge, myAnimalId);
   const micStatus = state.mic.error
     ? state.mic.error
     : micGateOpen
@@ -989,6 +1000,24 @@ function renderRoundHistory(game) {
   }).join('');
 }
 
+function shifumiLabel(choice) {
+  return choice === 'rock' ? 'pierre' : choice === 'paper' ? 'feuille' : choice === 'scissors' ? 'ciseaux' : 'tirage';
+}
+
+function renderRoundReason(game, round) {
+  if (round.reason !== 'time') return '';
+  const tieBreak = round.tieBreak;
+  if (!tieBreak) return '<p class="trans-next">Temps ecoule: meilleure barre.</p>';
+
+  const lastRound = tieBreak.rounds?.filter((entry) => entry.winningChoice)?.at(-1) || tieBreak.rounds?.at(-1);
+  const choiceText = lastRound?.winningChoice ? ` ${shifumiLabel(lastRound.winningChoice)} gagne.` : '';
+  const tiedNames = (tieBreak.tiedPlayerIds || [])
+    .map((id) => game.players.find((player) => player.id === id)?.displayName)
+    .filter(Boolean)
+    .join(' / ');
+  return `<p class="trans-next">Egalite au timer${tiedNames ? ` entre ${h(tiedNames)}` : ''}: Shifumi.${h(choiceText)}</p>`;
+}
+
 async function refreshMe() {
   try {
     const payload = await api('/api/me');
@@ -1014,7 +1043,10 @@ function connectWs() {
   ws.addEventListener('open', () => {
     state.wsOpen = true;
     state.wsRetries = 0;
+    state.subscribedLobbyCodes.clear();
     if (state.activeLobby) subscribeLobby(state.activeLobby.code);
+    if (state.viewedLobby) subscribeLobby(state.viewedLobby.code);
+    for (const code of Array.from(state.pendingLobbySubscriptions)) subscribeLobby(code);
   });
 
   ws.addEventListener('error', () => {
@@ -1023,6 +1055,7 @@ function connectWs() {
 
   ws.addEventListener('close', () => {
     state.wsOpen = false;
+    state.subscribedLobbyCodes.clear();
     state.wsRetries += 1;
     setTimeout(connectWs, Math.min(5000, 1200 * state.wsRetries));
   });
@@ -1076,7 +1109,12 @@ function sendWs(payload) {
 }
 
 function subscribeLobby(code) {
-  sendWs({ type: 'subscribeLobby', code });
+  const normalized = String(code || '').trim().toUpperCase();
+  if (!normalized) return;
+  state.pendingLobbySubscriptions.add(normalized);
+  if (state.ws?.readyState !== WebSocket.OPEN || state.subscribedLobbyCodes.has(normalized)) return;
+  sendWs({ type: 'subscribeLobby', code: normalized });
+  state.subscribedLobbyCodes.add(normalized);
 }
 
 async function loadLobby(code, join = false, firstAnimal = state.user?.mainAnimal) {
@@ -1085,9 +1123,9 @@ async function loadLobby(code, join = false, firstAnimal = state.user?.mainAnima
       ? await api(`/api/lobbies/${encodeURIComponent(code)}/join`, { method: 'POST', body: { firstAnimal } })
       : await api(`/api/lobbies/${encodeURIComponent(code)}`);
     state.viewedLobby = payload.lobby;
+    subscribeLobby(payload.lobby.code);
     if (payload.lobby.players.some((player) => player.id === state.user.id)) {
       state.activeLobby = payload.lobby;
-      subscribeLobby(payload.lobby.code);
     }
     render();
   } catch (error) {
@@ -1142,6 +1180,7 @@ function stopMic() {
     active: false,
     level: 0,
     phraseHitUntil: 0,
+    phraseHitChallengeId: '',
     segments: [],
     lastHitAt: 0,
     lastHeard: '',
@@ -1173,12 +1212,14 @@ function tickMic() {
   const me = game.players.find((player) => player.id === state.user.id);
   const animalId = game.currentRound.animalsByUser?.[state.user.id] || me?.selectedAnimal || state.user.mainAnimal;
   const challenge = game.currentRound.challengesByUser?.[state.user.id] || null;
+  const activeChallengeKey = challengeKey(challenge, animalId);
   const freshPhraseHit = phraseHitForChallenge(challenge, animalId);
   if (freshPhraseHit) {
     const mode = challenge?.mode || 'classic';
     const windowMs = mode === 'hold' ? 2500 : mode === 'rap' ? 900 : 1250;
     state.mic.lastHitAt = Date.now();
     state.mic.phraseHitUntil = Date.now() + windowMs;
+    state.mic.phraseHitChallengeId = activeChallengeKey;
     state.mic.lastMatch = challenge?.text || animalPhrase(animalId);
   }
   // Hold mode: extend the active window as long as the mic keeps picking up sound,
@@ -1190,13 +1231,15 @@ function tickMic() {
   ) {
     state.mic.phraseHitUntil = Math.max(state.mic.phraseHitUntil, Date.now() + 2000);
   }
-  const phraseHit = Date.now() < state.mic.phraseHitUntil;
+  const phraseHit = Date.now() < state.mic.phraseHitUntil
+    && state.mic.phraseHitChallengeId === activeChallengeKey;
 
   sendWs({
     type: 'voiceTick',
     lobbyId: game.lobbyId,
     level: state.mic.level,
     phraseHit,
+    freshPhraseHit,
     challengeId: challenge?.id || null
   });
 }
