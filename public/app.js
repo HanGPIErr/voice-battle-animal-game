@@ -54,6 +54,7 @@ const h = (value) => String(value ?? '')
   .replaceAll("'", '&#039;');
 
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+const PLAYER_COUNTS = [2, 3, 4];
 
 function nowServer() {
   return Date.now() + state.serverOffset;
@@ -174,6 +175,28 @@ function animalGrid(field, selected) {
           ${animalSvg(entry.id, '#f7bd3d')}
           <span>${h(entry.name)}</span>
         </button>
+      `).join('')}
+    </div>
+  `;
+}
+
+function lobbyPlayerCount(settings = {}) {
+  const value = Number(settings?.maxPlayers ?? 2);
+  return Number.isFinite(value) ? clamp(Math.round(value), 2, 4) : 2;
+}
+
+function playerFormatLabel(count) {
+  return count === 2 ? '1c1' : Array.from({ length: count }, () => '1').join('c');
+}
+
+function playerCountSegmented(selected = 2, minAllowed = 2) {
+  return `
+    <div class="segmented">
+      ${PLAYER_COUNTS.map((count) => `
+        <label>
+          <input type="radio" name="maxPlayers" value="${count}" ${count === selected ? 'checked' : ''} ${count < minAllowed ? 'disabled' : ''}>
+          <span>${playerFormatLabel(count)}</span>
+        </label>
       `).join('')}
     </div>
   `;
@@ -407,7 +430,7 @@ function renderHome() {
           <span>Cri Animaux Arena</span>
         </a>
         <h1 class="home-title">Cri Animaux Arena</h1>
-        <p class="home-lede">Duel 1c1 au micro, animaux aléatoires après la première manche, lobby privé, amis et profil customisable.</p>
+        <p class="home-lede">Match au micro en 1c1, à 3 ou à 4, animaux aléatoires après la première manche, lobby privé et amis.</p>
         <div class="home-actions">
           <button class="primary-btn" type="button" data-action="auth-mode" data-mode="register">Créer un compte</button>
           <button class="ghost-btn" type="button" data-action="auth-mode" data-mode="login">Connexion</button>
@@ -530,10 +553,14 @@ function renderDashboard() {
           <span class="db-play-icon">+</span>
           <div>
             <h2 class="panel-title">Créer une partie</h2>
-            <p class="db-play-sub">Lance un nouveau duel</p>
+            <p class="db-play-sub">Choisis le format puis invite tes amis</p>
           </div>
         </div>
         <form class="form" id="create-lobby-form">
+          <div>
+            <span class="tiny-label">Joueurs</span>
+            ${playerCountSegmented(2)}
+          </div>
           <div>
             <span class="tiny-label">Format</span>
             <div class="segmented">
@@ -721,7 +748,9 @@ function renderLobby(routeCode) {
 
   const me = lobby.players.find((player) => player.id === state.user.id);
   const isOwner = lobby.ownerId === state.user.id;
-  const canStart = isOwner && lobby.players.length === 2 && lobby.players.every((player) => player.ready) && lobby.status === 'open';
+  const maxPlayers = lobbyPlayerCount(lobby.settings);
+  const canJoin = lobby.status === 'open' && lobby.players.length < maxPlayers;
+  const canStart = isOwner && lobby.players.length === maxPlayers && lobby.players.every((player) => player.ready) && lobby.status === 'open';
   const selected = state.selectedAnimals.get(lobby.code) || me?.lobbyAnimal || state.user.mainAnimal;
 
   return `
@@ -732,7 +761,7 @@ function renderLobby(routeCode) {
           <h1><span class="lobby-code">${h(lobby.code)}</span></h1>
         </div>
         <div class="home-actions">
-          ${!me && lobby.status === 'open' ? `<button class="primary-btn" type="button" data-action="join-viewed-lobby" data-code="${h(lobby.code)}">Rejoindre</button>` : ''}
+          ${!me && canJoin ? `<button class="primary-btn" type="button" data-action="join-viewed-lobby" data-code="${h(lobby.code)}">Rejoindre</button>` : ''}
           <button class="ghost-btn" type="button" data-action="copy-lobby" data-code="${h(lobby.code)}">Copier le lien</button>
           ${lobby.status === 'in_game' ? `<a class="primary-btn" href="#/game">Voir la partie</a>` : ''}
         </div>
@@ -740,10 +769,10 @@ function renderLobby(routeCode) {
       <section class="panel">
         <div class="panel-header">
           <h2 class="panel-title">Joueurs</h2>
-          <span class="badge ${lobby.status === 'open' ? 'good' : 'warn'}">${h(lobby.status)}</span>
+          <span class="badge ${lobby.players.length === maxPlayers ? 'good' : 'warn'}">${lobby.players.length}/${maxPlayers}</span>
         </div>
         <div class="list">
-          ${[0, 1].map((slot) => {
+          ${Array.from({ length: maxPlayers }, (_, slot) => {
             const player = lobby.players[slot];
             if (!player) return '<div class="empty">Slot libre</div>';
             return `
@@ -762,13 +791,20 @@ function renderLobby(routeCode) {
       <section class="panel">
         <div class="panel-header">
           <h2 class="panel-title">Paramètres</h2>
-          <span class="badge">${lobby.settings.bestOf === 5 ? 'BO5' : 'BO3'}</span>
+          <span class="badge">${playerFormatLabel(maxPlayers)} · ${lobby.settings.bestOf === 5 ? 'BO5' : 'BO3'}</span>
         </div>
         ${isOwner && lobby.status === 'open' ? `
           <form class="form" id="lobby-settings-form" data-code="${h(lobby.code)}">
-            <div class="segmented">
-              <label><input type="radio" name="bestOf" value="3" ${lobby.settings.bestOf === 3 ? 'checked' : ''}><span>BO3</span></label>
-              <label><input type="radio" name="bestOf" value="5" ${lobby.settings.bestOf === 5 ? 'checked' : ''}><span>BO5</span></label>
+            <div>
+              <span class="tiny-label">Joueurs</span>
+              ${playerCountSegmented(maxPlayers, lobby.players.length)}
+            </div>
+            <div>
+              <span class="tiny-label">Format</span>
+              <div class="segmented">
+                <label><input type="radio" name="bestOf" value="3" ${lobby.settings.bestOf === 3 ? 'checked' : ''}><span>BO3</span></label>
+                <label><input type="radio" name="bestOf" value="5" ${lobby.settings.bestOf === 5 ? 'checked' : ''}><span>BO5</span></label>
+              </div>
             </div>
             <label class="field">
               <span>Durée manche</span>
@@ -779,6 +815,7 @@ function renderLobby(routeCode) {
           </form>
         ` : `
           <div class="mini-grid">
+            <div class="stat"><strong>${maxPlayers}</strong><span>Joueurs</span></div>
             <div class="stat"><strong>${lobby.settings.bestOf}</strong><span>Best of</span></div>
             <div class="stat"><strong>${lobby.settings.roundSeconds}</strong><span>Secondes</span></div>
             <div class="stat"><strong>${Math.ceil(lobby.settings.bestOf / 2)}</strong><span>Points</span></div>
@@ -891,7 +928,7 @@ function renderGame() {
         <div class="round-pill">Round ${round?.number || game.rounds.length}<br>${h(label)}</div>
         <div class="round-log">${renderRoundHistory(game)}</div>
       </section>
-      <section class="arena">
+      <section class="arena arena-${players.length}">
         ${players.map((player) => renderDuelPlayer(game, player, player.id === me?.id)).join('')}
       </section>
       <section class="mic-console">

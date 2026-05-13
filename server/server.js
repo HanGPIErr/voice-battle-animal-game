@@ -13,6 +13,8 @@ const DB_PATH = path.join(DATA_DIR, 'game.sqlite');
 const PORT = Number(process.env.PORT || 5176);
 const SESSION_DAYS = 14;
 const WS_GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11';
+const MIN_PLAYERS = 2;
+const MAX_PLAYERS = 4;
 
 const ANIMALS = [
   {
@@ -314,6 +316,12 @@ function normalizeBestOf(bestOf) {
   return value === 5 ? 5 : 3;
 }
 
+function normalizeMaxPlayers(maxPlayers) {
+  const value = Number(maxPlayers);
+  if (!Number.isFinite(value)) return MIN_PLAYERS;
+  return Math.max(MIN_PLAYERS, Math.min(MAX_PLAYERS, Math.round(value)));
+}
+
 function normalizeRoundSeconds(roundSeconds) {
   const value = Number(roundSeconds);
   if (!Number.isFinite(value)) return 30;
@@ -412,7 +420,8 @@ async function readJson(req) {
 function getLobbySnapshot(lobby) {
   if (!lobby) return null;
   const players = statements.lobbyPlayers.all(lobby.id).map(publicLobbyPlayer);
-  const settings = jsonParseSafe(lobby.settings_json, { bestOf: 3, roundSeconds: 30 });
+  const settings = jsonParseSafe(lobby.settings_json, { bestOf: 3, roundSeconds: 30, maxPlayers: MIN_PLAYERS });
+  settings.maxPlayers = normalizeMaxPlayers(settings.maxPlayers);
   const match = activeMatches.get(lobby.id) || restoreMatch(lobby.id);
   return {
     id: lobby.id,
@@ -693,10 +702,11 @@ function endRound(state, winnerId, reason = 'progress') {
 function finishMatch(state, winnerId) {
   state.status = 'finished';
   state.winnerId = Number(winnerId);
-  const loser = state.players.find((player) => player.id !== state.winnerId);
+  const losers = state.players.filter((player) => player.id !== state.winnerId);
 
   db.prepare('UPDATE users SET wins = wins + 1 WHERE id = ?').run(state.winnerId);
-  if (loser) db.prepare('UPDATE users SET losses = losses + 1 WHERE id = ?').run(loser.id);
+  const addLoss = db.prepare('UPDATE users SET losses = losses + 1 WHERE id = ?');
+  for (const loser of losers) addLoss.run(loser.id);
   db.prepare('UPDATE lobbies SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run('finished', state.lobbyId);
 
   saveMatchState(state);
@@ -709,11 +719,13 @@ function startMatch(lobby, actorId) {
   if (lobby.owner_id !== actorId) throw new Error('Seul le créateur peut lancer la partie');
   if (lobby.status !== 'open') throw new Error('Ce lobby n’est pas disponible');
 
+  const settings = jsonParseSafe(lobby.settings_json, { bestOf: 3, roundSeconds: 30, maxPlayers: MIN_PLAYERS });
+  const maxPlayers = normalizeMaxPlayers(settings.maxPlayers);
   const players = statements.lobbyPlayers.all(lobby.id);
-  if (players.length !== 2) throw new Error('Il faut exactement 2 joueurs');
-  if (players.some((player) => !player.ready)) throw new Error('Les deux joueurs doivent être prêts');
+  if (players.length !== maxPlayers) throw new Error(`Il faut exactement ${maxPlayers} joueurs`);
+  if (players.some((player) => !player.ready)) throw new Error('Tous les joueurs doivent être prêts');
+  settings.maxPlayers = maxPlayers;
 
-  const settings = jsonParseSafe(lobby.settings_json, { bestOf: 3, roundSeconds: 30 });
   const state = {
     id: slugId('match'),
     lobbyId: lobby.id,
@@ -1008,6 +1020,7 @@ async function handleApi(req, res, url) {
       if (!session) return;
       const body = await readJson(req);
       const settings = {
+        maxPlayers: normalizeMaxPlayers(body.maxPlayers),
         bestOf: normalizeBestOf(body.bestOf),
         roundSeconds: normalizeRoundSeconds(body.roundSeconds)
       };
@@ -1044,8 +1057,10 @@ async function handleApi(req, res, url) {
         if (lobby.status !== 'open') return sendError(res, 409, 'La partie a déjà commencé');
         const body = await readJson(req);
         const players = statements.lobbyPlayers.all(lobby.id);
+        const settings = jsonParseSafe(lobby.settings_json, { maxPlayers: MIN_PLAYERS });
+        const maxPlayers = normalizeMaxPlayers(settings.maxPlayers);
         const existing = players.find((player) => player.user_id === session.user.id);
-        if (!existing && players.length >= 2) return sendError(res, 409, 'Lobby complet');
+        if (!existing && players.length >= maxPlayers) return sendError(res, 409, 'Lobby complet');
         db.prepare(`
           INSERT INTO lobby_players(lobby_id, user_id, animal, ready)
           VALUES (?, ?, ?, 0)
@@ -1090,7 +1105,13 @@ async function handleApi(req, res, url) {
         if (lobby.owner_id !== session.user.id) return sendError(res, 403, 'Seul le créateur peut modifier le lobby');
         if (lobby.status !== 'open') return sendError(res, 409, 'Partie déjà lancée');
         const body = await readJson(req);
+        const players = statements.lobbyPlayers.all(lobby.id);
+        const maxPlayers = normalizeMaxPlayers(body.maxPlayers);
+        if (players.length > maxPlayers) {
+          return sendError(res, 400, `Impossible de passer à ${maxPlayers} joueurs avec ${players.length} joueurs dans le lobby`);
+        }
         const settings = {
+          maxPlayers,
           bestOf: normalizeBestOf(body.bestOf),
           roundSeconds: normalizeRoundSeconds(body.roundSeconds)
         };

@@ -1,6 +1,6 @@
 # Cri Animaux Arena
 
-Jeu web multijoueur 1v1 où deux joueurs imitent des animaux au micro pour remplir leur barre avant l'adversaire.
+Jeu web multijoueur en 1c1, à 3 ou à 4 où chaque joueur imite des animaux au micro pour remplir sa barre avant les autres.
 
 ## Lancer en local
 

@@ -397,6 +397,11 @@ button {
   transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
 }
 
+.segmented input:disabled + span {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+
 .form {
   display: grid;
   gap: 14px;
@@ -811,6 +816,38 @@ button {
   grid-template-columns: 1fr auto;
 }
 
+.mini-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.stat {
+  display: grid;
+  gap: 4px;
+  min-height: 76px;
+  place-items: center;
+  padding: 12px 10px;
+  border: 1.5px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.68);
+  text-align: center;
+}
+
+.stat strong {
+  font-size: 25px;
+  font-weight: 950;
+  line-height: 1;
+}
+
+.stat span {
+  color: var(--muted);
+  font-size: 10.5px;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
 .empty {
   padding: 20px;
   border: 1.5px dashed rgba(23, 32, 38, 0.2);
@@ -1005,6 +1042,14 @@ button {
   box-shadow: 8px 8px 0 #172026;
 }
 
+.arena-3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.arena-4 {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
 .arena::after {
   content: "";
   position: absolute;
@@ -1062,8 +1107,26 @@ button {
   transform-origin: 50% 92%;
 }
 
+.arena-3 .animal-stage,
+.arena-4 .animal-stage {
+  min-height: 260px;
+}
+
+.arena-3 .animal-stage svg,
+.arena-4 .animal-stage svg {
+  width: min(92%, 260px);
+}
+
 .duel-player:nth-child(2) .animal-stage svg {
   animation-delay: -0.3s;
+}
+
+.duel-player:nth-child(3) .animal-stage svg {
+  animation-delay: -0.48s;
+}
+
+.duel-player:nth-child(4) .animal-stage svg {
+  animation-delay: -0.18s;
 }
 
 .phrase {
@@ -1084,6 +1147,11 @@ button {
   font-size: clamp(20px, 3.5vw, 40px);
   font-weight: 950;
   line-height: 1.1;
+}
+
+.arena-3 .phrase > span,
+.arena-4 .phrase > span {
+  font-size: clamp(16px, 2.2vw, 28px);
 }
 
 .challenge-note {
@@ -1369,6 +1437,11 @@ button {
     min-height: auto;
   }
 
+  .arena-3,
+  .arena-4 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .animal-stage {
     min-height: 210px;
   }
@@ -1546,7 +1619,12 @@ button {
     grid-template-columns: 1fr;
   }
 
-  .duel-player:nth-child(2) {
+  .arena-3,
+  .arena-4 {
+    grid-template-columns: 1fr;
+  }
+
+  .arena-2 .duel-player:nth-child(2) {
     order: -1;
   }
 
