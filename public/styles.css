@@ -979,6 +979,20 @@ button {
   overflow: visible;
 }
 
+.animal-pocket .pocket-spark {
+  transform-origin: center;
+  animation: pocket-spark 0.95s ease-in-out infinite alternate;
+}
+
+.animal-pocket .pocket-spark-small {
+  animation-delay: -0.34s;
+}
+
+.animal-pocket .pocket-antenna {
+  transform-origin: 104px 62px;
+  animation: pocket-antenna 1.2s ease-in-out infinite alternate;
+}
+
 .lobby-code {
   display: inline-flex;
   align-items: center;
@@ -1127,6 +1141,30 @@ button {
 
 .duel-player:nth-child(4) .animal-stage svg {
   animation-delay: -0.18s;
+}
+
+.duel-pocket .player-meta {
+  border-color: rgba(23, 32, 38, 0.24);
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.86), rgba(126, 230, 200, 0.28)),
+    linear-gradient(90deg, rgba(255, 224, 102, 0.32), rgba(255, 111, 145, 0.22));
+}
+
+.duel-pocket .challenge-note {
+  border-color: rgba(23, 32, 38, 0.78);
+  background: #172026;
+  color: #fffaf1;
+  box-shadow: 3px 3px 0 rgba(255, 224, 102, 0.85);
+}
+
+.duel-pocket .phrase {
+  background: linear-gradient(135deg, #fffaf1, #e5fff7 50%, #f0ecff);
+}
+
+.duel-pocket .progress-fill {
+  background:
+    repeating-linear-gradient(45deg, rgba(255, 255, 255, 0.32) 0 9px, transparent 9px 18px),
+    linear-gradient(90deg, #7ee6c8, #ffe066 48%, #ff6f91);
 }
 
 .phrase {
@@ -1337,6 +1375,24 @@ button {
   }
   to {
     transform: rotate(5deg);
+  }
+}
+
+@keyframes pocket-spark {
+  from {
+    transform: scale(0.86) rotate(-8deg);
+  }
+  to {
+    transform: scale(1.08) rotate(7deg);
+  }
+}
+
+@keyframes pocket-antenna {
+  from {
+    transform: rotate(-5deg) translateY(0);
+  }
+  to {
+    transform: rotate(6deg) translateY(-3px);
   }
 }
 

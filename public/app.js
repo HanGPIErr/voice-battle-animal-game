@@ -14,6 +14,13 @@ const state = {
   ws: null,
   wsOpen: false,
   wsRetries: 0,
+  httpRealtime: false,
+  pollInterval: null,
+  pollInFlight: false,
+  httpVoiceBusy: false,
+  httpVoiceQueued: null,
+  httpVoiceTimer: null,
+  lastHttpVoiceAt: 0,
   pendingLobbySubscriptions: new Set(),
   subscribedLobbyCodes: new Set(),
   selectedAnimals: new Map(),
@@ -46,7 +53,8 @@ const fallbackAnimals = [
   { id: 'rooster', name: 'Coq', phrase: 'cocorico', aliases: ['cocorico'], prompts: [{ id: 'rooster_classic', text: 'cocorico !', aliases: ['cocorico'], hint: 'reveil du village', mode: 'hold', multiplier: 1.14 }, { id: 'rooster_rap', text: 'coco-rico rap', aliases: ['coco rico', 'coco rico rico', 'cocorico cocorico'], hint: 'flow de basse-cour', mode: 'rap', multiplier: 1.28 }, { id: 'rooster_combo', text: 'cot cot cocorico', aliases: ['cot cot cocorico', 'kot kot cocorico'], hint: 'echauffement puis cri', mode: 'combo', multiplier: 1.18 }] },
   { id: 'pig', name: 'Cochon', phrase: 'groin groin', aliases: ['groin', 'oink'], prompts: [{ id: 'pig_classic', text: 'groin groin', aliases: ['groin groin', 'oink oink'], hint: 'nez en avant', mode: 'classic', multiplier: 1 }, { id: 'pig_snort', text: 'snrrrk groin', aliases: ['snrk groin', 'snrrrk groin', 'ronfle groin'], hint: 'petit reniflement', mode: 'combo', multiplier: 1.18 }, { id: 'pig_rap', text: 'groin-groin rap', aliases: ['groin groin groin', 'oink oink oink'], hint: 'freestyle rose', mode: 'rap', multiplier: 1.26 }] },
   { id: 'sheep', name: 'Mouton', phrase: 'beee', aliases: ['beee', 'baa'], prompts: [{ id: 'sheep_hold', text: 'beee long', aliases: ['be', 'beee', 'baa'], hint: 'tiens le cri', mode: 'hold', multiplier: 1.12 }, { id: 'sheep_combo', text: 'be be beee', aliases: ['be be be', 'be be beee', 'baa baa baa'], hint: 'troupeau en montee', mode: 'combo', multiplier: 1.18 }, { id: 'sheep_rap', text: 'be-be rap', aliases: ['be be be be', 'baa baa baa baa'], hint: 'bergerie rapide', mode: 'rap', multiplier: 1.26 }] },
-  { id: 'fox', name: 'Renard', phrase: 'yip yip', aliases: ['yip', 'wa-pa'], prompts: [{ id: 'fox_classic', text: 'yip yip', aliases: ['yip yip', 'yap yap'], hint: 'cri malin', mode: 'classic', multiplier: 1 }, { id: 'fox_weird', text: 'wa-pa-pa yip', aliases: ['wa pa pa yip', 'wapapa yip', 'wa pa yip'], hint: 'meme accepte', mode: 'combo', multiplier: 1.2 }, { id: 'fox_rap', text: 'yip-yip rap', aliases: ['yip yip yip', 'yap yap yap'], hint: 'rap des bois', mode: 'rap', multiplier: 1.28 }] }
+  { id: 'fox', name: 'Renard', phrase: 'yip yip', aliases: ['yip', 'wa-pa'], prompts: [{ id: 'fox_classic', text: 'yip yip', aliases: ['yip yip', 'yap yap'], hint: 'cri malin', mode: 'classic', multiplier: 1 }, { id: 'fox_weird', text: 'wa-pa-pa yip', aliases: ['wa pa pa yip', 'wapapa yip', 'wa pa yip'], hint: 'meme accepte', mode: 'combo', multiplier: 1.2 }, { id: 'fox_rap', text: 'yip-yip rap', aliases: ['yip yip yip', 'yap yap yap'], hint: 'rap des bois', mode: 'rap', multiplier: 1.28 }] },
+  { id: 'pocket', name: 'Pocket', phrase: "c'est pocket", aliases: ['pocket', 'pokette', "c'est pocket"], prompts: [{ id: 'pocket_intro', text: "c'est pocket", aliases: ["c'est pocket", 'c est pocket', 'pocket', 'pokette'], hint: 'annonce nette', mode: 'classic', multiplier: 1.04 }, { id: 'pocket_ette', text: 'pirouette de pocket', aliases: ['pirouette de pocket', 'roulette de pocket', 'casquette de pocket', 'claquette de pocket', 'pochette de pocket'], hint: 'rime en ette', mode: 'combo', multiplier: 1.18 }, { id: 'pocket_rap', text: 'pocket en tempete', aliases: ['pocket en tempete', 'tempete de pocket', 'pocket pocket pocket', 'pochette pocket'], hint: 'flow en ette', mode: 'rap', multiplier: 1.3 }] }
 ];
 
 const h = (value) => String(value ?? '')
@@ -350,6 +358,27 @@ function animalSvg(id, accent = '#21a692') {
       <circle cx="119" cy="96" r="6" fill="${dark}"/>
       <path d="M96 111 C102 107 109 107 115 111 C110 119 101 119 96 111Z" fill="${dark}"/>
       <path class="mouth" d="M105 121 C99 130 89 129 85 121 M105 121 C112 130 123 129 126 121" fill="none" stroke="${dark}" stroke-width="5" stroke-linecap="round"/>
+    `,
+    pocket: `
+      ${common}
+      <path class="pocket-spark" d="M46 62 L54 43 L63 62 L82 70 L63 78 L54 98 L46 78 L27 70 Z" fill="#ffe066" stroke="${dark}" stroke-width="5" stroke-linejoin="round"/>
+      <path class="pocket-spark pocket-spark-small" d="M151 45 L158 31 L165 45 L179 52 L165 59 L158 73 L151 59 L137 52 Z" fill="#7ee6c8" stroke="${dark}" stroke-width="4" stroke-linejoin="round"/>
+      <path class="pocket-antenna" d="M99 63 C92 43 103 32 119 44" fill="none" stroke="${dark}" stroke-width="6" stroke-linecap="round"/>
+      <circle class="pocket-antenna" cx="122" cy="45" r="9" fill="#ff6f91" stroke="${dark}" stroke-width="5"/>
+      <path d="M49 113 C49 73 73 51 104 52 C136 53 157 78 154 118 C151 153 127 170 98 168 C69 166 49 146 49 113Z" fill="#6b58d9" stroke="${dark}" stroke-width="6"/>
+      <path d="M60 101 C65 72 84 61 105 61 C127 61 145 76 145 103 C135 93 120 88 103 88 C85 88 71 93 60 101Z" fill="#8f7cff" stroke="${dark}" stroke-width="5"/>
+      <path d="M68 121 C68 101 83 91 103 91 C125 91 139 103 138 124 C137 148 121 158 101 158 C81 158 68 145 68 121Z" fill="${paper}" stroke="${dark}" stroke-width="6"/>
+      <path class="wing" d="M68 124 C49 115 43 132 58 144 C66 140 70 134 68 124Z" fill="#7ee6c8" stroke="${dark}" stroke-width="5" stroke-linejoin="round"/>
+      <path class="wing" d="M137 124 C157 116 162 134 146 145 C139 140 135 134 137 124Z" fill="#7ee6c8" stroke="${dark}" stroke-width="5" stroke-linejoin="round"/>
+      <circle cx="88" cy="116" r="7" fill="${dark}"/>
+      <circle cx="119" cy="116" r="7" fill="${dark}"/>
+      <circle cx="90" cy="113" r="2" fill="#fff"/>
+      <circle cx="121" cy="113" r="2" fill="#fff"/>
+      <path class="mouth" d="M93 134 C101 142 114 141 121 132" fill="none" stroke="${dark}" stroke-width="5" stroke-linecap="round"/>
+      <path d="M99 91 L91 112 H103 L94 137 L119 105 H106 L115 91Z" fill="${accent}" stroke="${dark}" stroke-width="4" stroke-linejoin="round"/>
+      <path d="M75 155 L68 177 M128 155 L136 177" stroke="${dark}" stroke-width="7" stroke-linecap="round"/>
+      <circle cx="77" cy="128" r="8" fill="${blush}" opacity="0.56"/>
+      <circle cx="130" cy="128" r="8" fill="${blush}" opacity="0.56"/>
     `
   };
 
@@ -969,7 +998,7 @@ function renderDuelPlayer(game, player, isMe) {
   const isWinner = game.winnerId === player.id;
   const modeLabel = challenge?.mode === 'rap' ? 'RAP' : challenge?.mode === 'hold' ? 'LONG' : challenge?.mode === 'combo' ? 'COMBO' : 'CRI';
   return `
-    <div class="duel-player ${isMe ? 'me' : ''}" style="--accent:${h(player.accent)}">
+    <div class="duel-player duel-${h(animalId)} ${isMe ? 'me' : ''}" style="--accent:${h(player.accent)}">
       <div class="player-meta">
         <span class="player-name">${h(player.displayName)} ${isMe ? '· toi' : ''}</span>
         <span class="badge ${isWinner ? 'good' : ''}">${wins}/${game.targetWins}</span>
@@ -1036,9 +1065,73 @@ async function refreshMe() {
   }
 }
 
+function applyGameSnapshot(game) {
+  if (!game) return;
+  state.game = game;
+  state.serverOffset = game.serverNow - Date.now();
+  if (game.status === 'finished' && state.mic.active) stopMic();
+}
+
+function applyLobbySnapshot(lobby) {
+  if (!lobby || !state.user) return;
+  const isMyLobby = lobby.players.some((player) => player.id === state.user.id);
+  if (isMyLobby) state.activeLobby = lobby;
+  state.viewedLobby = lobby;
+  if (lobby.match) applyGameSnapshot(lobby.match);
+  if (lobby.status === 'in_game' && isMyLobby) location.hash = '#/game';
+}
+
+function currentLobbyCode() {
+  return state.game?.lobbyCode
+    || state.activeLobby?.code
+    || state.viewedLobby?.code
+    || Array.from(state.pendingLobbySubscriptions)[0]
+    || '';
+}
+
+function startHttpRealtime() {
+  state.httpRealtime = true;
+  if (state.pollInterval) return;
+  pollLobby();
+  state.pollInterval = setInterval(pollLobby, 850);
+}
+
+function stopHttpRealtime() {
+  clearInterval(state.pollInterval);
+  clearTimeout(state.httpVoiceTimer);
+  state.pollInterval = null;
+  state.httpVoiceTimer = null;
+  state.httpRealtime = false;
+  state.httpVoiceBusy = false;
+  state.httpVoiceQueued = null;
+}
+
+async function pollLobby() {
+  if (!state.user || state.wsOpen || state.pollInFlight) return;
+  const code = currentLobbyCode();
+  if (!code) return;
+  state.pollInFlight = true;
+  try {
+    const payload = await api(`/api/lobbies/${encodeURIComponent(code)}`);
+    applyLobbySnapshot(payload.lobby);
+    render();
+  } catch {
+    // Polling is a fallback transport; transient misses should not interrupt play.
+  } finally {
+    state.pollInFlight = false;
+  }
+}
+
+function shouldSkipWebSocket() {
+  return location.hostname.endsWith('.vercel.app');
+}
+
 function connectWs() {
   if (!state.user || (state.ws && [WebSocket.OPEN, WebSocket.CONNECTING].includes(state.ws.readyState))) return;
-  if (state.wsRetries >= 5) return;
+  if (shouldSkipWebSocket() || state.wsRetries >= 2) {
+    startHttpRealtime();
+    return;
+  }
   const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
   const ws = new WebSocket(`${protocol}://${location.host}/ws`);
   state.ws = ws;
@@ -1046,6 +1139,7 @@ function connectWs() {
   ws.addEventListener('open', () => {
     state.wsOpen = true;
     state.wsRetries = 0;
+    stopHttpRealtime();
     state.subscribedLobbyCodes.clear();
     if (state.activeLobby) subscribeLobby(state.activeLobby.code);
     if (state.viewedLobby) subscribeLobby(state.viewedLobby.code);
@@ -1060,7 +1154,11 @@ function connectWs() {
     state.wsOpen = false;
     state.subscribedLobbyCodes.clear();
     state.wsRetries += 1;
-    setTimeout(connectWs, Math.min(5000, 1200 * state.wsRetries));
+    if (state.wsRetries >= 2) {
+      startHttpRealtime();
+    } else {
+      setTimeout(connectWs, Math.min(5000, 1200 * state.wsRetries));
+    }
   });
 
   ws.addEventListener('message', (event) => {
@@ -1069,28 +1167,11 @@ function connectWs() {
       state.animals = message.animals || state.animals;
     }
     if (message.type === 'lobby') {
-      const isMyLobby = message.lobby.players.some((player) => player.id === state.user.id);
-      if (isMyLobby) {
-        if (message.lobby.status === 'finished') {
-          // Keep the lobby in state temporarily so renderGameEnd can display,
-          // but clear it so the nav / dashboard don't reference a dead lobby.
-          state.activeLobby = message.lobby;
-        } else {
-          state.activeLobby = message.lobby;
-        }
-      }
-      state.viewedLobby = message.lobby;
-      if (message.lobby.match && message.lobby.status !== 'finished') state.game = message.lobby.match;
-      if (message.lobby.status === 'in_game' && isMyLobby) {
-        location.hash = '#/game';
-      }
+      applyLobbySnapshot(message.lobby);
       render();
     }
     if (message.type === 'game') {
-      state.game = message.game;
-      state.serverOffset = message.game.serverNow - Date.now();
-      // Stop mic automatically when the game ends
-      if (message.game.status === 'finished' && state.mic.active) stopMic();
+      applyGameSnapshot(message.game);
       render();
     }
     if (message.type === 'friends') {
@@ -1115,7 +1196,12 @@ function subscribeLobby(code) {
   const normalized = String(code || '').trim().toUpperCase();
   if (!normalized) return;
   state.pendingLobbySubscriptions.add(normalized);
-  if (state.ws?.readyState !== WebSocket.OPEN || state.subscribedLobbyCodes.has(normalized)) return;
+  if (state.ws?.readyState !== WebSocket.OPEN) {
+    startHttpRealtime();
+    pollLobby();
+    return;
+  }
+  if (state.subscribedLobbyCodes.has(normalized)) return;
   sendWs({ type: 'subscribeLobby', code: normalized });
   state.subscribedLobbyCodes.add(normalized);
 }
@@ -1197,6 +1283,68 @@ function stopMic() {
   render();
 }
 
+function mergeVoiceTicks(previous, next) {
+  if (!previous) return next;
+  return {
+    ...next,
+    level: Math.max(Number(previous.level || 0), Number(next.level || 0)),
+    phraseHit: Boolean(previous.phraseHit || next.phraseHit),
+    freshPhraseHit: Boolean(previous.freshPhraseHit || next.freshPhraseHit),
+    challengeId: next.challengeId || previous.challengeId || null
+  };
+}
+
+function queueHttpVoiceTick(payload) {
+  if (!payload.phraseHit) return;
+  state.httpVoiceQueued = mergeVoiceTicks(state.httpVoiceQueued, payload);
+  flushHttpVoiceTick();
+}
+
+async function flushHttpVoiceTick() {
+  if (state.httpVoiceBusy) return;
+  const delay = Math.max(0, 160 - (Date.now() - state.lastHttpVoiceAt));
+  if (delay > 0) {
+    if (!state.httpVoiceTimer) {
+      state.httpVoiceTimer = setTimeout(() => {
+        state.httpVoiceTimer = null;
+        flushHttpVoiceTick();
+      }, delay);
+    }
+    return;
+  }
+
+  const payload = state.httpVoiceQueued;
+  const code = currentLobbyCode();
+  if (!payload || !code) return;
+
+  state.httpVoiceQueued = null;
+  state.httpVoiceBusy = true;
+  state.lastHttpVoiceAt = Date.now();
+  try {
+    const response = await api(`/api/lobbies/${encodeURIComponent(code)}/voice`, {
+      method: 'POST',
+      body: payload
+    });
+    if (response.lobby) applyLobbySnapshot(response.lobby);
+    if (response.game) applyGameSnapshot(response.game);
+    render();
+  } catch (error) {
+    state.mic.error = error.message || 'Connexion partie interrompue';
+  } finally {
+    state.httpVoiceBusy = false;
+    if (state.httpVoiceQueued) flushHttpVoiceTick();
+  }
+}
+
+function sendVoiceTick(payload) {
+  if (state.ws?.readyState === WebSocket.OPEN) {
+    sendWs(payload);
+    return;
+  }
+  startHttpRealtime();
+  queueHttpVoiceTick(payload);
+}
+
 function tickMic() {
   const analyser = state.mic.analyser;
   const data = state.mic.data;
@@ -1237,7 +1385,7 @@ function tickMic() {
   const phraseHit = Date.now() < state.mic.phraseHitUntil
     && state.mic.phraseHitChallengeId === activeChallengeKey;
 
-  sendWs({
+  sendVoiceTick({
     type: 'voiceTick',
     lobbyId: game.lobbyId,
     level: state.mic.level,
@@ -1318,6 +1466,10 @@ document.addEventListener('click', async (event) => {
   if (action === 'logout') {
     await api('/api/auth/logout', { method: 'POST' });
     stopMic();
+    stopHttpRealtime();
+    try {
+      state.ws?.close();
+    } catch {}
     state.user = null;
     state.activeLobby = null;
     state.game = null;
@@ -1367,6 +1519,7 @@ document.addEventListener('click', async (event) => {
 
   if (action === 'invite-friend') {
     if (!state.activeLobby) return toast('Crée un lobby avant invitation', 'bad');
+    if (state.ws?.readyState !== WebSocket.OPEN) return toast('Partage le lien du lobby pour inviter', 'bad');
     sendWs({ type: 'inviteFriend', friendId: Number(button.dataset.userId), code: state.activeLobby.code });
   }
 

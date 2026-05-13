@@ -118,6 +118,17 @@ const ANIMALS = [
       { id: 'fox_weird', text: 'wa-pa-pa yip', aliases: ['wa pa pa yip', 'wapapa yip', 'wa pa yip'], hint: 'mème accepté', mode: 'combo', multiplier: 1.2 },
       { id: 'fox_rap', text: 'yip-yip rap', aliases: ['yip yip yip', 'yap yap yap'], hint: 'rap des bois', mode: 'rap', multiplier: 1.28 }
     ]
+  },
+  {
+    id: 'pocket',
+    name: 'Pocket',
+    phrase: "c'est pocket",
+    aliases: ['pocket', 'pokette', "c'est pocket"],
+    prompts: [
+      { id: 'pocket_intro', text: "c'est pocket", aliases: ["c'est pocket", 'c est pocket', 'pocket', 'pokette'], hint: 'annonce nette', mode: 'classic', multiplier: 1.04 },
+      { id: 'pocket_ette', text: 'pirouette de pocket', aliases: ['pirouette de pocket', 'roulette de pocket', 'casquette de pocket', 'claquette de pocket', 'pochette de pocket'], hint: 'rime en ette', mode: 'combo', multiplier: 1.18 },
+      { id: 'pocket_rap', text: 'pocket en tempete', aliases: ['pocket en tempete', 'tempete de pocket', 'pocket pocket pocket', 'pochette pocket'], hint: 'flow en ette', mode: 'rap', multiplier: 1.3 }
+    ]
   }
 ];
 
@@ -250,6 +261,7 @@ const statements = {
 
 const wsClients = new Set();
 const activeMatches = new Map();
+const httpVoiceClients = new Map();
 
 function publicUser(row) {
   if (!row) return null;
@@ -1262,6 +1274,28 @@ async function handleApi(req, res, url) {
         } catch (error) {
           sendError(res, 400, error.message);
         }
+        return;
+      }
+
+      if (method === 'POST' && action === 'voice') {
+        const member = assertLobbyMember(lobby.id, session.user.id);
+        if (!member) return sendError(res, 404, 'Tu nâ€™es pas dans ce lobby');
+
+        const body = await readJson(req);
+        const state = activeMatches.get(lobby.id) || restoreMatch(lobby.id);
+        if (!state) return sendError(res, 404, 'Partie introuvable');
+
+        let client = httpVoiceClients.get(session.user.id);
+        if (!client) {
+          client = {
+            user: session.user,
+            voiceLastAt: new Map(),
+            voiceHitLastAt: new Map()
+          };
+          httpVoiceClients.set(session.user.id, client);
+        }
+        handleVoiceTick(client, { ...body, lobbyId: lobby.id });
+        sendJson(res, 200, { game: publicGameState(state), lobby: getLobbySnapshot(statements.lobbyById.get(lobby.id)) });
         return;
       }
     }
