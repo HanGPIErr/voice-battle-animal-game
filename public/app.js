@@ -768,8 +768,11 @@ function renderLobby(routeCode) {
           <h1><span class="lobby-code">${h(lobby.code)}</span></h1>
         </div>
         <div class="home-actions">
+          <a class="ghost-btn" href="#/dashboard">Accueil</a>
+          <a class="ghost-btn" href="#/profile">Profil</a>
           ${!me && canJoin ? `<button class="primary-btn" type="button" data-action="join-viewed-lobby" data-code="${h(lobby.code)}">Rejoindre</button>` : ''}
           <button class="ghost-btn" type="button" data-action="copy-lobby" data-code="${h(lobby.code)}">Copier le lien</button>
+          ${me && lobby.status === 'open' ? `<button class="danger-btn" type="button" data-action="leave-lobby" data-code="${h(lobby.code)}">Quitter le lobby</button>` : ''}
           ${lobby.status === 'in_game' ? `<a class="primary-btn" href="#/game">Voir la partie</a>` : ''}
         </div>
       </section>
@@ -1376,6 +1379,24 @@ document.addEventListener('click', async (event) => {
   if (action === 'join-viewed-lobby') {
     await loadLobby(button.dataset.code, true, state.user.mainAnimal);
     location.hash = `#/lobby/${button.dataset.code}`;
+  }
+
+  if (action === 'leave-lobby') {
+    const code = button.dataset.code;
+    try {
+      await api(`/api/lobbies/${encodeURIComponent(code)}/leave`, { method: 'POST' });
+      state.selectedAnimals.delete(code);
+      state.pendingLobbySubscriptions.delete(String(code || '').trim().toUpperCase());
+      state.subscribedLobbyCodes.delete(String(code || '').trim().toUpperCase());
+      if (state.activeLobby?.code === code) state.activeLobby = null;
+      if (state.viewedLobby?.code === code) state.viewedLobby = null;
+      toast('Lobby quittÃ©', 'good');
+      location.hash = '#/dashboard';
+      await refreshMe();
+      render();
+    } catch (error) {
+      toast(error.message, 'bad');
+    }
   }
 
   if (action === 'ready-toggle') {
